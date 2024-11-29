@@ -8,7 +8,7 @@ parser.add_argument('--source', help='source documents directory', default='OANC
 parser.add_argument('--source-count', help='sources to sample', default=100)
 parser.add_argument('--word-sample-count', help='number of words to collect from a source', default=200)
 parser.add_argument('--bias-to-front', help='bias the random starting point towards the front of the article', default=True)
-parser.add_argument('--dictionary-only', help='only accept dictionary words', action='store_true')
+parser.add_argument('--word-list', help='restrict acceptable words Scrabble, common', default=None)
 parser.add_argument('--written-only', help='only process written texts', action='store_true')
 parser.add_argument('--ignore-punctuation', help='ignore punctuation within words', default=True)
 parser.add_argument('--strip-accents', help='strip accents from letters in a word', default=True)
@@ -18,15 +18,13 @@ args = parser.parse_args()
 
 alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-def load_dictionary():
-	n_words = {}
-	for n in range(3, 8):
-		n_words[n] = set()
-		with open (f"wl{n}.txt", 'r') as file:
-			for line in file:
-				word = line.strip()
-				n_words[n].add(word)
-	return n_words
+def load_valid_words(filename):
+	words = set()
+	with open (filename, 'r') as file:
+		for line in file:
+			word = line.split()[0]
+			words.add(word)
+	return words
 
 def strip_accents(s):
 	return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
@@ -48,7 +46,7 @@ def alphabetical(word):
 
 def valid_word(word, dictionary):
 	if len(word) >= 3 and len(word) <= 7:
-		return alphabetical(word) and (dictionary == None or word in dictionary[len(word)])
+		return alphabetical(word) and (dictionary == None or word in dictionary)
 
 def column(length, position):
 	return f"{length} / {position+1}"
@@ -108,7 +106,16 @@ def sample_words(file, dictionary):
 	return sample_list
 
 def collect_sample():
-	dictionary = load_dictionary() if args.dictionary_only else None
+	valid_words = None
+	match args.word_list:
+		case 'Scrabble':
+			print('loading Scrabble dictionary')
+			valid_words = load_valid_words('Scrabble-dictionary.txt')
+		case 'common':
+			print('loading common words dictionary')
+			valid_words = load_valid_words('google-books-common-words.txt')
+		case _:
+			valid_words = None
 	files = files_in_directory(args.source)
 	sources = list(filter(lambda file: filter_file(file), files))
 	random.shuffle(sources)
@@ -117,7 +124,7 @@ def collect_sample():
 	collection = []
 	while samples < int(args.source_count) and file_number < len(sources):
 		file = sources[file_number]
-		sample_list = sample_words(file, dictionary)
+		sample_list = sample_words(file, valid_words)
 		if len(sample_list) == int(args.word_sample_count):
 			collection.extend(sample_list)
 			samples += 1
