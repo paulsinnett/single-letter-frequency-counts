@@ -16,7 +16,9 @@ parser.add_argument('--written-only', help='only process written texts', action=
 parser.add_argument('--ignore-punctuation', help='ignore punctuation within words', default=True)
 parser.add_argument('--strip-accents', help='strip accents from letters in a word', default=True)
 parser.add_argument('--output', help='output csv filename', default=None)
-parser.add_argument('--stat-table', help='filename for a csv table of K counts', default=None)
+parser.add_argument('--stat-table', help='filename for a csv table of Z scores', default=None)
+parser.add_argument('--scatter-plot', help='filename for a csv table of first and third letter scores', default=None)
+parser.add_argument('--trials', help='number of trials', default=100)
 
 args = parser.parse_args()
 
@@ -247,7 +249,31 @@ elif args.stat_table:
 			total += 1
 	print(f'{int(stddev4 * 100 / total)}% are less than 2 standard deviations from the mean')
 	output_table(f'{args.stat_table}-z.csv', headers, letter_position_z_score)
-
+elif args.scatter_plot:
+	with open(f'{args.scatter_plot}.csv', 'w', newline='') as file:
+		writer = csv.writer(file)
+		writer.writerow(['Sample', 'First', 'Third'])
+		writer.writerow(['Mayzner & Tresselt 1965', 152, 221])
+		writer.writerow(['Norvig 2012', 91, 123])
+		for trial in range(int(args.trials)):
+			letter_position_count = generate_table(valid_words, counter, headers)
+			first = 0
+			third = 0
+			for position in range(3, 8):
+				first += letter_position_count['K'][column(position, 0)]
+				third += letter_position_count['K'][column(position, 2)]
+			writer.writerow([f'Trial-{trial}', first, third])
+elif not counter == None:
+	first = 0
+	third = 0
+	total = 0
+	for type, token in counter.items():
+		total += token
+		first += token if type[0] == 'K' else 0
+		third += token if type[2] == 'K' else 0
+	sample_size = int(args.word_sample_count) * int(args.source_count)
+	scale = sample_size / total
+	print(f'Total tokens: {total} Sample size {sample_size} First letter is K: {round(first * scale)}, Third letter is K: {round(third * scale)}')
 
 # def calculate_k_first():
 # 	letter_position_count = generate_table()
