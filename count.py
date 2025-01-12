@@ -12,14 +12,14 @@ parser.add_argument('--source-count', help='sources to sample', default=100)
 parser.add_argument('--word-sample-count', help='number of words to collect from a source', default=200)
 parser.add_argument('--bias-to-front', help='bias the random starting point towards the front of the article', default=True)
 parser.add_argument('--word-list', help='restrict acceptable words Scrabble, common', default=None)
-parser.add_argument('--written-only', help='only process written texts', action='store_true')
+parser.add_argument('--filter-texts', help='only process texts from given sources (such as fiction,non-fiction,journal)', default=None)
 parser.add_argument('--ignore-punctuation', help='ignore punctuation within words', default=True)
 parser.add_argument('--strip-accents', help='strip accents from letters in a word', default=True)
 parser.add_argument('--output', help='output csv filename', default=None)
 parser.add_argument('--stat-table', help='filename for a csv table of Z scores', default=None)
 parser.add_argument('--scatter-plot', help='filename for a csv table of first and third letter scores', default=None)
 parser.add_argument('--trials', help='number of trials', default=100)
-
+parser.add_argument('--count-types', help='output the tokens of the given type (KNOW,LIKE)', default=None)
 args = parser.parse_args()
 
 alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -58,8 +58,12 @@ def column(length, position):
 	return f"{length} / {position+1}"
 
 def filter_file(file):
-	if args.written_only:
-		return 'spoken' not in file
+	if args.filter_texts != None:
+		filters = args.filter_texts.split(',')
+		for filter in filters:
+			if filter in file:
+				return True
+		return False
 	else:
 		return True
 
@@ -80,21 +84,11 @@ def convert_to_types(sample_list):
 		types[length][word] += 1
 	return types
 
-def sample_words(file, dictionary):
-	sample_list = []
+def list_words(file, dictionary):
+	word_list = []
 	with open(file, 'r', encoding='utf8') as text_file:
-		word_list = []
 		for line in text_file:
 			for word in line.split():
-				word_list.append(word)
-
-		count = 0
-		word_sample_count = int(args.word_sample_count)
-		start = len(word_list) - word_sample_count if args.bias_to_front else len(word_list)
-		if start >= 0:
-			pos = random.randrange(start)
-			while count < int(args.word_sample_count) and pos < len(word_list):
-				word = word_list[pos]
 				if args.ignore_punctuation:
 					word = ''.join(filter(lambda c: c.isalnum(), word)).upper()
 				else:
@@ -102,9 +96,21 @@ def sample_words(file, dictionary):
 				if args.strip_accents:
 					word = strip_accents(word)
 				if valid_word(word, dictionary):
-					sample_list.append(word)
-					count += 1
-				pos += 1
+					word_list.append(word)
+	return word_list
+
+def sample_words(file, dictionary):
+	sample_list = []
+	word_list = list_words(file, dictionary)
+	word_sample_count = int(args.word_sample_count)
+	start = len(word_list) - word_sample_count if args.bias_to_front else len(word_list)
+	if start >= 0:
+		pos = 0 if start == 0 else random.randrange(start)
+		count = 0
+		while count < int(args.word_sample_count) and pos < len(word_list):
+			sample_list.append(word_list[pos])
+			pos += 1
+			count += 1
 	return sample_list
 
 
@@ -171,9 +177,9 @@ def output_table(filename, headers, letter_position_count):
 			row.append(display_count(letter_position_count[letter]['T']))
 			writer.writerow(row)
 
-def load_types_and_tokens(valid_words):
+def load_types_and_tokens(source, valid_words):
 	counter = Counter()
-	if args.source == 'norvig':
+	if source == 'norvig':
 		with open ('google-books-common-words.txt', 'r') as file:
 			for line in file:
 				word, frequency = line.split()
@@ -184,9 +190,8 @@ def load_types_and_tokens(valid_words):
 		files = files_in_directory('OANC-GrAF')
 		sources = list(filter(lambda file: filter_file(file), files))
 		for file in sources:
-			sample_list = sample_words(file, valid_words)
+			sample_list = list_words(file, valid_words)
 			counter.update(sample_list)
-
 	return counter
 
 def generate_table(valid_words, counter, headers):
@@ -224,7 +229,7 @@ match args.word_list:
 		valid_words = None
 counter = None
 if args.source == 'norvig' or args.source == 'oanc-list':
-	counter = load_types_and_tokens(valid_words)
+	counter = load_types_and_tokens(args.source, valid_words)
 if args.output:
 	generate_table(valid_words, counter, headers)
 elif args.stat_table:
@@ -254,7 +259,7 @@ elif args.scatter_plot:
 		writer = csv.writer(file)
 		writer.writerow(['Sample', 'First', 'Third'])
 		writer.writerow(['Mayzner & Tresselt 1965', 152, 221])
-		writer.writerow(['Norvig 2012', 91, 123])
+		writer.writerow(['Norvig 2012', 124, 149])
 		for trial in range(int(args.trials)):
 			letter_position_count = generate_table(valid_words, counter, headers)
 			first = 0
@@ -267,78 +272,34 @@ elif not counter == None:
 	first = 0
 	third = 0
 	total = 0
+	digrams = Counter()
+	types = 0
+	words = []
+	common = Counter()
+	if args.count_types != None:
+		words = args.count_types.split(',')
 	for type, token in counter.items():
+		types += 1
 		total += token
-		first += token if type[0] == 'K' else 0
-		third += token if type[2] == 'K' else 0
+		if type[0] == 'K':
+			first += token
+		if type[2] == 'K':
+			third += token
+		if len(type) == 4 and (type[0] == 'K' or type[2] == 'K'):
+			common[type] += token
+		for word in words:
+			if len(type) == len(word):
+				for letter in range(len(word) - 1):
+					if type[letter] == word[letter] and type[letter+1] == word[letter+1]:
+						digrams[word[letter:letter+2]] += token
 	sample_size = int(args.word_sample_count) * int(args.source_count)
 	scale = sample_size / total
-	print(f'Total tokens: {total} Sample size {sample_size} First letter is K: {round(first * scale)}, Third letter is K: {round(third * scale)}')
-
-# def calculate_k_first():
-# 	letter_position_count = generate_table()
-# 	sum_k_1st = 0
-# 	for length in range(3, 8):
-# 		sum_k_1st += letter_position_count['K'][column(length, 0)]
-# 	return sum_k_1st
-
-# for i in range(10):
-# 	trials = []
-# 	for i in range(100):
-# 		trials.append(calculate_k_first())
-# 	z = (152 - mean(trials)) / stdev(trials)
-# 	root2 = 2**0.5
-# 	probability = 0.5 * (1 + math.erf(z / root2))
-# 	print(f'Probability of finding 152 or less words beginning with K in 20,000 is approximately {round(probability * 100, sigfigs=1)}%')
-
-# def generate_letter_position_count_array(headers):
-# 	letter_position_count_array = {}
-# 	for letter in alphabet:
-# 		letter_position_count_array[letter] = {}
-# 		for col in headers:
-# 			letter_position_count_array[letter][col] = []
-# 	return letter_position_count_array
-
-# def calculate_z_score(letter_position_count_array, headers):
-# 	letter_position_z_score = create_frequency_table(headers)
-# 	with open('run2.csv', newline='') as file:
-# 		reader = csv.reader(file)
-# 		for row in reader:
-# 			letter = row[0]
-# 			if letter in letter_position_count_array:
-# 				for i in range(1, len(row)):
-# 					if i < len(headers):
-# 						x = int(0 if row[i] == '' else row[i])
-# 						#x = letter_position_count_array[letter][headers[i]][0]
-# 						mu = mean(letter_position_count_array[letter][headers[i]])
-# 						sigma = math.sqrt(variance(letter_position_count_array[letter][headers[i]], mu))
-# 						z = 0 if sigma == 0 else (x - mu) / sigma
-# 						letter_position_z_score[letter][headers[i]] = f'{z:.2f}' if abs(z) > 2 else '' # {mu}+/-{sigma*2:.2f}'
-# 	return letter_position_z_score
-
-
-# headers = create_headers()
-# letter_position_count_array = generate_letter_position_count_array(headers)
-# for i in range(100):
-# 	letter_position_count = generate_table(headers)
-# 	for letter in alphabet:
-# 		for col in headers:
-# 			letter_position_count_array[letter][col].append(letter_position_count[letter][col])
-# letter_position_z_score = calculate_z_score(letter_position_count_array, headers)
-# if args.output:
-# 	output_table(headers, letter_position_z_score)
-
-# with open('MayznerTresselt1965.csv', newline='') as file:
-# 	reader = csv.reader(file)
-# 	for row in reader:
-# 		letter = row[0].lower()
-# 		if letter in letter_position_count:
-# 			for i in range(1, len(row)):
-# 				if i < len(headers):
-# 					#x = int(0 if row[i] == '' else row[i])
-# 					x = letter_position_count[letter][headers[i]][0]
-# 					mu = mean(letter_position_count[letter][headers[i]])
-# 					sigma = sqrt(variance(letter_position_count[letter][headers[i]], mu))
-# 					z = 0 if sigma == 0 else (x - mu) / sigma
-# 					cv = 0 if mu == 0 else sigma / mu
-# 					letter_position_count[letter][headers[i]] = abs(z)
+	if args.count_types:
+		for word in words:
+			print(f'{word} {round(counter[word] * scale)}')
+			for letter in range(len(word) - 1):
+				digram = word[letter:letter+2]
+				print(f'{digram} {round(digrams[digram] * scale)}')
+	for (type, token) in common.most_common(10):
+		print(f'{type} {round(token * scale)}')
+	print(f'Total types: {types} tokens: {total} Sample size {sample_size} First letter is K: {round(first * scale)}, Third letter is K: {round(third * scale)}')
