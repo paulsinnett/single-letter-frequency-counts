@@ -16,10 +16,12 @@ parser.add_argument('--filter-texts', help='only process texts from given source
 parser.add_argument('--ignore-punctuation', help='ignore punctuation within words', default=True)
 parser.add_argument('--strip-accents', help='strip accents from letters in a word', default=True)
 parser.add_argument('--output', help='output csv filename', default=None)
-parser.add_argument('--stat-table', help='filename for a csv table of Z scores', default=None)
 parser.add_argument('--scatter-plot', help='filename for a csv table of first and third letter scores', default=None)
-parser.add_argument('--trials', help='number of trials', default=100)
-parser.add_argument('--count-types', help='output the tokens of the given type (KNOW,LIKE)', default=None)
+parser.add_argument('--trials', help='number of trials in the scatter plot', default=100)
+parser.add_argument('--count-types', help='output the count of tokens of the given type (KNOW,LIKE,?IK?)', default=None)
+parser.add_argument('--score-letter', help='output the count of tokens with the score letter in the first or third position', default=None)
+parser.add_argument('--most-common', help='output the N most common words with the score letter in the first or third position', default=None)
+parser.add_argument('--common-length', help='restrict the words to those of the given length', default=None)
 args = parser.parse_args()
 
 alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -232,28 +234,6 @@ if args.source == 'norvig' or args.source == 'oanc-list':
 	counter = load_types_and_tokens(args.source, valid_words)
 if args.output:
 	generate_table(valid_words, counter, headers)
-elif args.stat_table:
-	stat_table = open_table(f'{args.stat_table}.csv', headers)
-	letter_position_distribution = create_frequency_distribution_table(headers)
-	letter_position_z_score = create_frequency_table()
-	for trial in range (100):
-		letter_position_count = generate_table(valid_words, counter, headers)
-		for letter in alphabet:
-			for col in headers:
-				letter_position_distribution[letter][col].append(letter_position_count[letter][col])
-	stddev4 = 0
-	total = 0
-	for letter in alphabet:
-		for col in headers:
-			average = mean(letter_position_distribution[letter][col])
-			stddev = stdev(letter_position_distribution[letter][col])
-			z = 0 if stddev == 0 else (stat_table[letter][col] - average) / stddev
-			letter_position_z_score[letter][col] = z
-			if abs(z) < 2:
-				stddev4 += 1
-			total += 1
-	print(f'{int(stddev4 * 100 / total)}% are less than 2 standard deviations from the mean')
-	output_table(f'{args.stat_table}-z.csv', headers, letter_position_z_score)
 elif args.scatter_plot:
 	with open(f'{args.scatter_plot}.csv', 'w', newline='') as file:
 		writer = csv.writer(file)
@@ -272,34 +252,47 @@ elif not counter == None:
 	first = 0
 	third = 0
 	total = 0
-	digrams = Counter()
 	types = 0
-	words = []
 	common = Counter()
+	words = []
 	if args.count_types != None:
 		words = args.count_types.split(',')
+	most_common = None
+	if args.most_common != None:
+		most_common = int(args.most_common)
+	score_letter = None
+	if args.score_letter != None:
+		score_letter = args.score_letter
+	length = None
+	if args.common_length != None:
+		length = int(args.common_length)
 	for type, token in counter.items():
 		types += 1
 		total += token
-		if type[0] == 'K':
-			first += token
-		if type[2] == 'K':
-			third += token
-		if len(type) == 4 and (type[0] == 'K' or type[2] == 'K'):
-			common[type] += token
-		for word in words:
-			if len(type) == len(word):
-				for letter in range(len(word) - 1):
-					if type[letter] == word[letter] and type[letter+1] == word[letter+1]:
-						digrams[word[letter:letter+2]] += token
+		if score_letter != None:
+			if type[0] == score_letter:
+				first += token
+			if type[2] == score_letter:
+				third += token
+			if (length == None or len(type) == length) and (type[0] == score_letter or type[2] == score_letter):
+				common[type] += token
 	sample_size = int(args.word_sample_count) * int(args.source_count)
 	scale = sample_size / total
 	if args.count_types:
 		for word in words:
-			print(f'{word} {round(counter[word] * scale)}')
-			for letter in range(len(word) - 1):
-				digram = word[letter:letter+2]
-				print(f'{digram} {round(digrams[digram] * scale)}')
-	for (type, token) in common.most_common(10):
-		print(f'{type} {round(token * scale)}')
-	print(f'Total types: {types} tokens: {total} Sample size {sample_size} First letter is K: {round(first * scale)}, Third letter is K: {round(third * scale)}')
+			digram_count = 0
+			for type, token in counter.items():
+				if len(type) == len(word):
+					match = True
+					for letter in range(len(word)):
+						if word[letter] != '?' and type[letter] != word[letter]:
+							match = False
+					if match:
+						print(f'{type} {round(token * scale)}')
+						digram_count += token
+			print(f'Total {word} {round(digram_count * scale)}')
+	elif most_common != None:
+		for (type, token) in common.most_common(most_common):
+			print(f'{type} {round(token * scale)}')
+	elif score_letter != None:
+		print(f'Total types: {types} tokens: {total} Sample size {sample_size} First letter is {score_letter}: {round(first * scale)}, Third letter is {score_letter}: {round(third * scale)}')
