@@ -1,2 +1,2 @@
-# single-letter-frequency-counts
-an investigation into single letter frequency counts
+# Code for investigating single letter frequency counts
+
